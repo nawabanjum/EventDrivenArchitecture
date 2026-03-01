@@ -167,7 +167,7 @@ dotnet run --project src/OrderProcessing.NotificationApi
 | **BackgroundService** | .NET hosted services consume messages while API serves HTTP requests |
 | **Async Communication** | Services process events at their own pace — no blocking |
 
-## Azure Service Bus Key Features (Day 11 Learning)
+## Azure Service Bus Key Features 
 
 | Feature | Details |
 |---|---|
