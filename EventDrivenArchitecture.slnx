@@ -1,9 +1,9 @@
 <Solution>
   <Folder Name="/src/">
-    <Project Path="OrderProcessing.InventoryApi/OrderProcessing.InventoryApi.csproj" Id="6290e04c-6983-417b-99ee-68f00d4f948e" />
-    <Project Path="OrderProcessing.NotificationApi/OrderProcessing.NotificationApi.csproj" Id="d1737730-f989-4d0a-9e57-603aaeebae8f" />
-    <Project Path="OrderProcessing.OrderApi/OrderProcessing.OrderApi.csproj" Id="8669eb83-7e56-44a8-a10c-1d9d17728dc9" />
-    <Project Path="OrderProcessing.PaymentApi/OrderProcessing.PaymentApi.csproj" Id="2891f8c0-f1b8-4039-8e7c-b6b10ba4e17f" />
+    <Project Path="src/OrderProcessing.InventoryApi/OrderProcessing.InventoryApi.csproj" Id="6290e04c-6983-417b-99ee-68f00d4f948e" />
+    <Project Path="src/OrderProcessing.NotificationApi/OrderProcessing.NotificationApi.csproj" Id="d1737730-f989-4d0a-9e57-603aaeebae8f" />
+    <Project Path="src/OrderProcessing.OrderApi/OrderProcessing.OrderApi.csproj" Id="8669eb83-7e56-44a8-a10c-1d9d17728dc9" />
+    <Project Path="src/OrderProcessing.PaymentApi/OrderProcessing.PaymentApi.csproj" Id="2891f8c0-f1b8-4039-8e7c-b6b10ba4e17f" />
     <Project Path="src/OrderProcessing.Domain/OrderProcessing.Domain.csproj" />
   </Folder>
 </Solution>
