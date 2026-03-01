@@ -1,0 +1,24 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+*.cache
+*.dll
+*.pdb
+
+# IDE
+.vs/
+.vscode/
+*.sln.DotSettings.user
+
+# Claude
+.claude/
+
+# User secrets / sensitive config
+appsettings.Development.json
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
