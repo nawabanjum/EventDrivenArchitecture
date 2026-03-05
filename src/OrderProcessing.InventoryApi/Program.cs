@@ -12,19 +12,23 @@ var builder = WebApplication.CreateBuilder(args);
 // --- End Azure Service Bus ---
 builder.Services.AddSingleton<InventoryStore>();
 
-// --- RabbitMQ Registration ---
-var rabbitFactory = new ConnectionFactory
-{
-    HostName = builder.Configuration["RabbitMQ:HostName"],
-    Port = int.Parse(builder.Configuration["RabbitMQ:Port"]!),
-    UserName = builder.Configuration["RabbitMQ:UserName"],
-    Password = builder.Configuration["RabbitMQ:Password"]
-};
-
-var rabbitConnection = await rabbitFactory.CreateConnectionAsync();
-builder.Services.AddSingleton(rabbitConnection);
-builder.Services.AddHostedService<RabbitMqOrderPlacedConsumer>();
+// --- RabbitMQ Registration (commented out) ---
+// var rabbitFactory = new ConnectionFactory
+// {
+//     HostName = builder.Configuration["RabbitMQ:HostName"],
+//     Port = int.Parse(builder.Configuration["RabbitMQ:Port"]!),
+//     UserName = builder.Configuration["RabbitMQ:UserName"],
+//     Password = builder.Configuration["RabbitMQ:Password"]
+// };
+//
+// var rabbitConnection = await rabbitFactory.CreateConnectionAsync();
+// builder.Services.AddSingleton(rabbitConnection);
+// builder.Services.AddHostedService<RabbitMqOrderPlacedConsumer>();
 // --- End RabbitMQ ---
+
+// --- Kafka Registration ---
+builder.Services.AddHostedService<KafkaOrderPlacedConsumer>();
+// --- End Kafka ---
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
