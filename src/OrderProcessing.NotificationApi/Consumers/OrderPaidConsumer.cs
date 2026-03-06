@@ -46,33 +46,43 @@ public class OrderPaidConsumer : BackgroundService
 
         if (orderPaid is null)
         {
-            _logger.LogWarning("Received null OrderPaidEvent");
-            await args.CompleteMessageAsync(args.Message);
+            _logger.LogWarning("Received null OrderPaidEvent — sending to dead-letter queue");
+            await args.DeadLetterMessageAsync(args.Message, "InvalidMessage", "Deserialized to null");
             return;
         }
 
-        // Simulate sending notification
-        _logger.LogInformation(
-            "Sending notification for Order {OrderId}: Payment {PaymentId} of {Amount:C} received at {PaidAt}",
-            orderPaid.OrderId, orderPaid.PaymentId, orderPaid.PaidAmount, orderPaid.PaidAt);
-
-        _notificationStore.Add(new NotificationRecord
+        try
         {
-            OrderId = orderPaid.OrderId,
-            PaymentId = orderPaid.PaymentId,
-            PaidAmount = orderPaid.PaidAmount,
-            Status = "Sent",
-            NotifiedAt = DateTime.UtcNow
-        });
+            _logger.LogInformation(
+                "Sending notification for Order {OrderId}: Payment {PaymentId} of {Amount:C} (Attempt {Attempt})",
+                orderPaid.OrderId, orderPaid.PaymentId, orderPaid.PaidAmount, args.Message.DeliveryCount);
 
-        _logger.LogInformation("Notification sent for Order {OrderId}", orderPaid.OrderId);
+            _notificationStore.Add(new NotificationRecord
+            {
+                OrderId = orderPaid.OrderId,
+                PaymentId = orderPaid.PaymentId,
+                PaidAmount = orderPaid.PaidAmount,
+                Status = "Sent",
+                NotifiedAt = DateTime.UtcNow
+            });
 
-        await args.CompleteMessageAsync(args.Message);
+            _logger.LogInformation("Notification sent for Order {OrderId}", orderPaid.OrderId);
+
+            await args.CompleteMessageAsync(args.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex,
+                "Error sending notification for Order {OrderId} (Attempt {Attempt}). Abandoning for retry.",
+                orderPaid.OrderId, args.Message.DeliveryCount);
+
+            await args.AbandonMessageAsync(args.Message);
+        }
     }
 
     private Task HandleErrorAsync(ProcessErrorEventArgs args)
     {
-        _logger.LogError(args.Exception, "Error processing message: {ErrorSource}", args.ErrorSource);
+        _logger.LogError(args.Exception, "Service Bus error: {ErrorSource}", args.ErrorSource);
         return Task.CompletedTask;
     }
 }

@@ -497,6 +497,85 @@ src/
 
 ---
 
+## Fault Tolerance & Retry Strategy
+
+All consumers implement **retry with exponential backoff** and **dead-letter routing** for messages that permanently fail processing.
+
+### How It Works Per Broker
+
+#### Azure Service Bus
+
+- **On processing error:** `AbandonMessageAsync()` returns the message to the queue for automatic redelivery
+- **On poison message (null deserialization):** `DeadLetterMessageAsync()` sends directly to the built-in dead-letter sub-queue
+- **Max retries:** Controlled by `MaxDeliveryCount` on the subscription (default 10) — after exceeding, Azure Service Bus automatically dead-letters the message
+- **Delivery tracking:** `args.Message.DeliveryCount` is logged per attempt
+
+```
+Message fails → AbandonMessageAsync() → redelivered by Service Bus
+                                          ↓ (after MaxDeliveryCount exceeded)
+                                    Built-in Dead-Letter Sub-Queue
+```
+
+#### RabbitMQ
+
+- **In-consumer retry:** 3 attempts with exponential backoff (2s, 4s, 8s)
+- **Dead Letter Exchange (DLX):** Each queue is configured with `x-dead-letter-exchange` argument
+- **Dead Letter Queue (DLQ):** A dedicated `.dlq` queue is bound to each DLX
+- **On final failure:** `BasicNackAsync(requeue: false)` — RabbitMQ routes the message to the DLX/DLQ
+
+```
+Message fails → Retry 1 (2s) → Retry 2 (4s) → Retry 3 (8s)
+                                                   ↓ (all failed)
+                                    BasicNackAsync(requeue: false)
+                                                   ↓
+                                    DLX → Dead Letter Queue (.dlq)
+```
+
+**RabbitMQ Dead Letter Resources (auto-created):**
+
+| Resource | Name | Purpose |
+|---|---|---|
+| DLX Exchange | `order-placed-exchange.dlx` | Routes failed messages from payment & inventory queues |
+| DLX Exchange | `order-paid-exchange.dlx` | Routes failed messages from notification queue |
+| DLQ | `payment-order-placed-queue.dlq` | Failed payment processing messages |
+| DLQ | `inventory-order-placed-queue.dlq` | Failed inventory reservation messages |
+| DLQ | `notification-order-paid-queue.dlq` | Failed notification messages |
+
+#### Apache Kafka
+
+- **Manual offset commit:** `EnableAutoCommit = false` — offsets are only committed after successful processing or DLT routing
+- **In-consumer retry:** 3 attempts with exponential backoff (2s, 4s, 8s)
+- **Dead Letter Topic (DLT):** Failed messages are published to a `*.DLT` topic via a dedicated producer
+- **No data loss:** Offset is never advanced until the message is either processed or safely stored in the DLT
+
+```
+Message fails → Retry 1 (2s) → Retry 2 (4s) → Retry 3 (8s)
+                                                   ↓ (all failed)
+                                    Produce to Dead Letter Topic (.DLT)
+                                                   ↓
+                                    Commit offset (message accounted for)
+```
+
+**Kafka Dead Letter Topics:**
+
+| DLT Topic | Source Topic | Consumer |
+|---|---|---|
+| `order-placed.DLT` | `order-placed` | PaymentApi, InventoryApi |
+| `order-paid.DLT` | `order-paid` | NotificationApi |
+
+### Retry Summary
+
+| Aspect | Azure Service Bus | RabbitMQ | Kafka |
+|---|---|---|---|
+| **Retry mechanism** | Built-in (AbandonMessage) | In-consumer loop | In-consumer loop |
+| **Max attempts** | MaxDeliveryCount (default 10) | 3 | 3 |
+| **Backoff** | Managed by Service Bus | Exponential (2s, 4s, 8s) | Exponential (2s, 4s, 8s) |
+| **Dead letter destination** | Built-in DLQ sub-queue | DLX → `.dlq` queue | `.DLT` topic |
+| **Poison message handling** | `DeadLetterMessageAsync()` | `BasicNackAsync(requeue: false)` | Produce to DLT |
+| **Offset/ack safety** | Abandon (not complete) on error | Ack only on success | Manual commit after processing |
+
+---
+
 ## Key Concepts Demonstrated
 
 | Concept | How It's Used |
@@ -507,6 +586,7 @@ src/
 | **Multiple Broker Support** | Same domain events flow through Azure Service Bus, RabbitMQ, or Kafka |
 | **BackgroundService** | .NET hosted services consume messages while API serves HTTP requests |
 | **Async Communication** | Services process events at their own pace — no blocking |
+| **Fault Tolerance** | Retry with exponential backoff + dead-letter queues for all three brokers |
 
 ---
 
@@ -519,7 +599,7 @@ src/
 | **Pub/Sub Model** | Topic + Subscription | Exchange + Queue + Binding | Topic + Consumer Group |
 | **Message Acknowledgment** | `CompleteMessageAsync()` | `BasicAckAsync()` | Offset commit (auto/manual) |
 | **Message Retention** | Consumed & deleted | Consumed & deleted | Retained on disk (configurable, default 7 days) |
-| **Dead Letter Queue** | Built-in | Manual DLX configuration | Manual (via separate topic) |
+| **Dead Letter Queue** | Built-in (AbandonMessage + MaxDeliveryCount) | DLX + DLQ (auto-declared, 3 retries) | DLT topic (manual commit, 3 retries) |
 | **Duplicate Detection** | Built-in | Manual (plugins) | Idempotent producer (built-in) |
 | **Ordering** | Per-session FIFO | Per-queue FIFO | Per-partition FIFO |
 | **Scaling** | Auto-managed by Azure | Manual (clustering, federation) | Partition-based (horizontal scaling) |

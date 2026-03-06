@@ -46,34 +46,45 @@ public class OrderPlacedConsumer : BackgroundService
 
         if (orderPlaced is null)
         {
-            _logger.LogWarning("Received null OrderPlacedEvent");
-            await args.CompleteMessageAsync(args.Message);
+            _logger.LogWarning("Received null OrderPlacedEvent — sending to dead-letter queue");
+            await args.DeadLetterMessageAsync(args.Message, "InvalidMessage", "Deserialized to null");
             return;
         }
 
-        _logger.LogInformation("Reserving inventory for Order {OrderId}, Product: {Product}, Qty: {Quantity}",
-            orderPlaced.OrderId, orderPlaced.Product, orderPlaced.Quantity);
-
-        // Simulate inventory reservation
-        await Task.Delay(300);
-
-        _inventoryStore.Add(new InventoryReservation
+        try
         {
-            OrderId = orderPlaced.OrderId,
-            Product = orderPlaced.Product,
-            Quantity = orderPlaced.Quantity,
-            Status = "Reserved",
-            ReservedAt = DateTime.UtcNow
-        });
+            _logger.LogInformation("Reserving inventory for Order {OrderId}, Product: {Product}, Qty: {Quantity} (Attempt {Attempt})",
+                orderPlaced.OrderId, orderPlaced.Product, orderPlaced.Quantity, args.Message.DeliveryCount);
 
-        _logger.LogInformation("Inventory reserved for Order {OrderId}", orderPlaced.OrderId);
+            // Simulate inventory reservation
+            await Task.Delay(300);
 
-        await args.CompleteMessageAsync(args.Message);
+            _inventoryStore.Add(new InventoryReservation
+            {
+                OrderId = orderPlaced.OrderId,
+                Product = orderPlaced.Product,
+                Quantity = orderPlaced.Quantity,
+                Status = "Reserved",
+                ReservedAt = DateTime.UtcNow
+            });
+
+            _logger.LogInformation("Inventory reserved for Order {OrderId}", orderPlaced.OrderId);
+
+            await args.CompleteMessageAsync(args.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex,
+                "Error reserving inventory for Order {OrderId} (Attempt {Attempt}). Abandoning for retry.",
+                orderPlaced.OrderId, args.Message.DeliveryCount);
+
+            await args.AbandonMessageAsync(args.Message);
+        }
     }
 
     private Task HandleErrorAsync(ProcessErrorEventArgs args)
     {
-        _logger.LogError(args.Exception, "Error processing message: {ErrorSource}", args.ErrorSource);
+        _logger.LogError(args.Exception, "Service Bus error: {ErrorSource}", args.ErrorSource);
         return Task.CompletedTask;
     }
 }

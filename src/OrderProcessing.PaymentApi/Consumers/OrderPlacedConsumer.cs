@@ -50,47 +50,61 @@ public class OrderPlacedConsumer : BackgroundService
 
         if (orderPlaced is null)
         {
-            _logger.LogWarning("Received null OrderPlacedEvent");
-            await args.CompleteMessageAsync(args.Message);
+            _logger.LogWarning("Received null OrderPlacedEvent — sending to dead-letter queue");
+            await args.DeadLetterMessageAsync(args.Message, "InvalidMessage", "Deserialized to null");
             return;
         }
 
-        _logger.LogInformation("Processing payment for Order {OrderId}, Amount: {Amount}",
-            orderPlaced.OrderId, orderPlaced.TotalAmount);
-
-        // Simulate payment processing
-        await Task.Delay(500);
-
-        var paymentId = Guid.NewGuid().ToString();
-        var paidAt = DateTime.UtcNow;
-
-        _paymentStore.Add(new PaymentRecord
+        try
         {
-            OrderId = orderPlaced.OrderId,
-            PaymentId = paymentId,
-            Amount = orderPlaced.TotalAmount,
-            Status = "Paid",
-            PaidAt = paidAt
-        });
+            _logger.LogInformation("Processing payment for Order {OrderId}, Amount: {Amount} (Attempt {Attempt})",
+                orderPlaced.OrderId, orderPlaced.TotalAmount, args.Message.DeliveryCount);
 
-        var orderPaidEvent = new OrderPaidEvent
+            // Simulate payment processing
+            await Task.Delay(500);
+
+            var paymentId = Guid.NewGuid().ToString();
+            var paidAt = DateTime.UtcNow;
+
+            _paymentStore.Add(new PaymentRecord
+            {
+                OrderId = orderPlaced.OrderId,
+                PaymentId = paymentId,
+                Amount = orderPlaced.TotalAmount,
+                Status = "Paid",
+                PaidAt = paidAt
+            });
+
+            var orderPaidEvent = new OrderPaidEvent
+            {
+                OrderId = orderPlaced.OrderId,
+                PaymentId = paymentId,
+                PaidAmount = orderPlaced.TotalAmount,
+                PaidAt = paidAt
+            };
+
+            await _publisher.PublishAsync(orderPaidEvent);
+
+            _logger.LogInformation("Payment completed for Order {OrderId}. Published OrderPaidEvent", orderPlaced.OrderId);
+
+            await args.CompleteMessageAsync(args.Message);
+        }
+        catch (Exception ex)
         {
-            OrderId = orderPlaced.OrderId,
-            PaymentId = paymentId,
-            PaidAmount = orderPlaced.TotalAmount,
-            PaidAt = paidAt
-        };
+            _logger.LogError(ex,
+                "Error processing payment for Order {OrderId} (Attempt {Attempt}). Abandoning for retry.",
+                orderPlaced.OrderId, args.Message.DeliveryCount);
 
-        await _publisher.PublishAsync(orderPaidEvent);
-
-        _logger.LogInformation("Payment completed for Order {OrderId}. Published OrderPaidEvent", orderPlaced.OrderId);
-
-        await args.CompleteMessageAsync(args.Message);
+            // Abandon returns the message to the queue for redelivery.
+            // Azure Service Bus will automatically dead-letter the message
+            // after MaxDeliveryCount (default 10) is exceeded.
+            await args.AbandonMessageAsync(args.Message);
+        }
     }
 
     private Task HandleErrorAsync(ProcessErrorEventArgs args)
     {
-        _logger.LogError(args.Exception, "Error processing message: {ErrorSource}", args.ErrorSource);
+        _logger.LogError(args.Exception, "Service Bus error: {ErrorSource}", args.ErrorSource);
         return Task.CompletedTask;
     }
 }
